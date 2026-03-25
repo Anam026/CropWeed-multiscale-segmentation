@@ -1,0 +1,14 @@
+ outputs/*
+!outputs/visualizations/
+!outputs/visualizations/reports_result/
+!outputs/visualizations/reports_result/**
+ 
+ data/
+outputs/
+*.png
+*.jpg
+*.jpeg
+*.pt
+*.pth
+__pycache__/
+.ipynb_checkpoints/
