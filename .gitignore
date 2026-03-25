@@ -1,9 +1,10 @@
- outputs/*
+outputs/*
 !outputs/visualizations/
 !outputs/visualizations/reports_result/
 !outputs/visualizations/reports_result/**
  
- data/
+data/raw/
+
 outputs/
 *.png
 *.jpg
