@@ -1,0 +1,105 @@
+# ============================================================
+#  CropAndWeed Dataset — Master Configuration
+#  Same MSFCA + Transformer + UNet++ architecture
+#  Dataset: https://github.com/cropandweed/cropandweed-dataset
+# ============================================================
+
+project:
+  name: "cropandweed_segmentation"
+  seed: 42
+  device: "cpu"        # change to "cuda" if GPU available
+  num_workers: 0       # 0 for Windows
+
+dataset:
+  name: "cropandweed"
+  raw_dir: "data/raw/cropandweed-dataset"
+  variant: "CropsOrWeed"        # dataset variant folder under labelIds/
+  image_size: 512
+  num_classes: 3
+  class_names: ["background", "crop", "weed"]
+  ignore_index: 255
+  train_ratio: 0.70
+  val_ratio:   0.15
+  test_ratio:  0.15
+
+augmentation:
+  train:
+    horizontal_flip: true
+    vertical_flip: true
+    random_rotation: 30
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std:  [0.229, 0.224, 0.225]
+  val:
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std:  [0.229, 0.224, 0.225]
+
+model:
+  encoder:
+    name: "resnet50"
+    pretrained: true
+    freeze_bn: false
+  msfca:
+    in_channels: 2048
+    out_channels: 512
+    kernel_sizes: [5, 11, 17]
+    reduction_ratio: 16
+  transformer:
+    in_channels: 512
+    num_heads: 8
+    mlp_ratio: 4.0
+    dropout: 0.1
+    num_layers: 2
+  fusion:
+    in_channels: 1024
+    out_channels: 512
+  unetpp_decoder:
+    encoder_channels: [64, 256, 512, 1024, 2048]
+    decoder_channels: [256, 128, 64, 32]
+    num_classes: 3
+  edge_head:
+    in_channels: 32
+    mid_channels: 32
+
+training:
+  epochs: 50
+  batch_size: 2
+  gradient_clip: 1.0
+  accumulation_steps: 1
+  amp: false
+
+  optimizer:
+    name: "adamw"
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+    betas: [0.9, 0.999]
+
+  scheduler:
+    name: "cosine"
+    warmup_epochs: 3
+    min_lr: 1.0e-6
+
+  loss:
+    dice_weight: 0.5
+    focal_weight: 0.5
+    edge_weight: 0.3
+    focal_gamma: 2.0
+    focal_alpha: null
+    class_weights: null
+
+evaluation:
+  metrics: ["miou", "dice", "precision", "recall", "f1"]
+  save_predictions: true
+
+output:
+  checkpoint_dir: "outputs/cropandweed/checkpoints"
+  log_dir: "outputs/cropandweed/logs"
+  viz_dir: "outputs/cropandweed/visualizations"
+  save_every: 10
+  log_every: 10
+  tensorboard: true
