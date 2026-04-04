@@ -5,7 +5,11 @@ outputs/*
 !outputs/visualizations/
 !outputs/visualizations/results_reports/
 !outputs/visualizations/results_report/**
- 
+outputs/cropandweed/visualizations/all_predictions/
+!outputs/cropandweed/visualizations/results_report/
+!outputs/cropandweed/visualizations/results_report/**
+!outputs/cropandweed/visualizations/summary_grid.png
+
 data/raw/
 
 outputs/
@@ -16,3 +20,4 @@ outputs/
 *.pth
 __pycache__/
 .ipynb_checkpoints/
+outputs/cropandweed/checkpoints/

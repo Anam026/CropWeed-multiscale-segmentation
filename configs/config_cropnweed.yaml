@@ -7,13 +7,14 @@
 project:
   name: "cropandweed_segmentation"
   seed: 42
-  device: "cpu"        # change to "cuda" if GPU available
-  num_workers: 0       # 0 for Windows
+  device: "cpu"      
+  num_workers: 0       
 
 dataset:
   name: "cropandweed"
-  raw_dir: "data/raw/cropandweed-dataset"
-  variant: "CropsOrWeed"        # dataset variant folder under labelIds/
+dataset:
+  raw_dir: "data/raw/cropandweed-dataset/data"
+  variant: "CropsOrWeed9"      # dataset variant folder under labelIds/
   image_size: 512
   num_classes: 3
   class_names: ["background", "crop", "weed"]
