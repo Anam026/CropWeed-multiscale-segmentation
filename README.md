@@ -1,6 +1,6 @@
 # Crop-Weed Segmentation with MSFCA + UNet++ Pipeline
 
-A PhD-level multiscale semantic segmentation project for crop/weed discrimination using the WeedsGalore dataset.
+Multiscale semantic segmentation project for crop/weed discrimination using the WeedsGalore dataset.
 
 ## Architecture Overview
 
