@@ -96,9 +96,9 @@ evaluation:
   save_predictions: true
 
 output:
-  checkpoint_dir: "outputs/checkpoints"
-  log_dir: "outputs/logs"
-  viz_dir: "outputs/visualizations"
+  checkpoint_dir: "outputs/weedsgalore/checkpoints"
+  log_dir: "outputs/weedsgalore/logs"
+  viz_dir: "outputs/weedsgalore/visualizations"
   save_every: 10
   log_every: 5
   tensorboard: true
