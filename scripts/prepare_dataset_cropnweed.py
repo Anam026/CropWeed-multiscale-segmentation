@@ -1,6 +1,5 @@
 """
 prepare_dataset_cropnweed.py
-================================
 Creates train/val/test splits for the CropAndWeed dataset.
 Usage:
     python scripts/prepare_dataset_cropsnweeds.py \

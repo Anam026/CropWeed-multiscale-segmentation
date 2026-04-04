@@ -1,5 +1,4 @@
 """
-train_cropnweed.py — Training for CropAndWeed dataset
 Usage:
     python scripts/train_cropnweed.py --config configs/config_cropnweed.yaml
 """

@@ -1,6 +1,5 @@
 """
 CropAndWeed Dataset Loader 
-------------------------------------
 Dataset structure:
   data/raw/cropandweed-dataset/data/
   ├── images/          ← RGB images (.jpg)
