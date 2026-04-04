@@ -11,7 +11,7 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 
-from src.data.dataset_caw import CropAndWeedDataset
+from src.data.dataset_cropnweed import CropAndWeedDataset
 from src.data.transforms import get_train_transforms, get_val_transforms
 from src.models.segmentation_model import build_model
 from src.training.losses import build_loss
@@ -29,7 +29,7 @@ def set_seed(seed):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config",  default="configs/config_caw.yaml")
+    parser.add_argument("--config",  default="configs/config_cropnweed.yaml")
     parser.add_argument("--resume",  default=None)
     parser.add_argument("--device",  default=None)
     args = parser.parse_args()
@@ -50,18 +50,24 @@ def main():
     aug_cfg = cfg.get("augmentation", {})
 
     train_ds = CropAndWeedDataset(
-        root_dir=ds_cfg["raw_dir"], split="train",
-        image_size=ds_cfg["image_size"],
-        transform=get_train_transforms(ds_cfg["image_size"], aug_cfg),
-        variant=ds_cfg.get("variant", "CropsOrWeed"),
+        root_dir   = ds_cfg["raw_dir"],
+        split      = "train",
+        image_size = ds_cfg["image_size"],
+        transform  = get_train_transforms(ds_cfg["image_size"], aug_cfg),
+        variant    = ds_cfg.get("variant", "CropsOrWeed9"),
     )
     val_ds = CropAndWeedDataset(
-        root_dir=ds_cfg["raw_dir"], split="val",
-        image_size=ds_cfg["image_size"],
-        transform=get_val_transforms(ds_cfg["image_size"], aug_cfg),
-        variant=ds_cfg.get("variant", "CropsOrWeed"),
+        root_dir   = ds_cfg["raw_dir"],
+        split      = "val",
+        image_size = ds_cfg["image_size"],
+        transform  = get_val_transforms(ds_cfg["image_size"], aug_cfg),
+        variant    = ds_cfg.get("variant", "CropsOrWeed9"),
     )
     logger.info(f"Train: {len(train_ds)}  |  Val: {len(val_ds)}")
+
+    if len(train_ds) == 0 or len(val_ds) == 0:
+        logger.error("Dataset is empty! Check raw_dir and variant in config.")
+        sys.exit(1)
 
     bs  = cfg["training"].get("batch_size", 2)
     nw  = cfg.get("project", {}).get("num_workers", 0)
@@ -74,6 +80,9 @@ def main():
 
     logger.info("Building model...")
     model     = build_model(cfg)
+    total     = sum(p.numel() for p in model.parameters()) / 1e6
+    logger.info(f"Parameters: {total:.2f}M")
+
     criterion = build_loss(cfg)
     optimizer = build_optimizer(model, cfg)
     scheduler = build_scheduler(optimizer, cfg, len(train_loader))

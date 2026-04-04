@@ -1,148 +1,111 @@
 """
-prepare_dataset_caw.py
-=======================
-Downloads and prepares the CropAndWeed dataset.
-
-Steps:
-  1. Clones the GitHub repo (scripts only)
-  2. Runs their setup.py to download images + annotations
-  3. Creates splits/train.txt, val.txt, test.txt
-  4. Verifies structure
-
+prepare_dataset_cropnweed.py
+================================
+Creates train/val/test splits for the CropAndWeed dataset.
 Usage:
-    python scripts/prepare_dataset_caw.py --output_dir data/raw/cropandweed-dataset
+    python scripts/prepare_dataset_cropsnweeds.py \
+        --output_dir data/raw/cropandweed-dataset/data \
+        --skip_download
 """
-
-import argparse
-import os
-import random
-import subprocess
-import sys
+import argparse, os, random, sys
 from pathlib import Path
 
 
-def run(cmd, cwd=None):
-    print(f"  Running: {cmd}")
-    result = subprocess.run(cmd, shell=True, cwd=cwd)
-    if result.returncode != 0:
-        print(f"  ERROR: command failed with code {result.returncode}")
-        sys.exit(1)
-
-
-def create_splits(dataset_dir: Path, train=0.70, val=0.15):
-    """Create train/val/test split text files."""
+def create_splits(dataset_dir: Path, variant: str = "CropsOrWeed9",
+                  train=0.70, val=0.15):
     splits_dir = dataset_dir / "splits"
     splits_dir.mkdir(exist_ok=True)
 
-    # Check if official splits already exist
     if (splits_dir / "train.txt").exists():
-        print("  Official splits already exist — skipping.")
+        print("  Splits already exist — skipping.")
         return
 
-    img_dir   = dataset_dir / "images"
-    mask_dir  = dataset_dir / "labelIds" / "CropsOrWeed"
+    img_dir  = dataset_dir / "images"
+    mask_dir = dataset_dir / "labelIds" / variant
 
     if not img_dir.exists():
-        print(f"  ERROR: images/ folder not found at {img_dir}")
-        sys.exit(1)
+        print(f"  ERROR: images/ not found at {img_dir}"); sys.exit(1)
     if not mask_dir.exists():
-        print(f"  WARNING: labelIds/CropsOrWeed/ not found — trying labelIds/")
-        mask_dir = dataset_dir / "labelIds"
+        print(f"  ERROR: labelIds/{variant}/ not found at {mask_dir}")
+        print(f"  Available variants:")
+        lid = dataset_dir / "labelIds"
+        if lid.exists():
+            for d in sorted(lid.iterdir()):
+                print(f"    {d.name}")
+        sys.exit(1)
 
-    # Get all stems that have both image and mask
-    stems = sorted([
-        p.stem for p in img_dir.glob("*.png")
-        if (mask_dir / f"{p.stem}.png").exists()
-    ])
+    # Images are .jpg, masks are .png
+    stems = []
+    for ext in ["*.jpg", "*.jpeg", "*.png"]:
+        for img_path in sorted(img_dir.glob(ext)):
+            mask_path = mask_dir / f"{img_path.stem}.png"
+            if mask_path.exists():
+                stems.append(img_path.stem)
 
     if not stems:
-        print("  WARNING: No matched image-mask pairs found.")
-        print("  Make sure setup.py ran successfully and labelIds/CropsOrWeed/ exists.")
-        return
+        print(f"  ERROR: No matched image-mask pairs found.")
+        print(f"  Checked images: {img_dir}")
+        print(f"  Checked masks:  {mask_dir}")
+        n_imgs  = len(list(img_dir.glob("*.*")))
+        n_masks = len(list(mask_dir.glob("*.png")))
+        print(f"  Images found: {n_imgs}")
+        print(f"  Masks found:  {n_masks}")
+        # Show sample filenames to debug
+        imgs  = list(img_dir.glob("*.*"))[:3]
+        masks = list(mask_dir.glob("*.png"))[:3]
+        print(f"  Sample images: {[p.name for p in imgs]}")
+        print(f"  Sample masks:  {[p.name for p in masks]}")
+        sys.exit(1)
 
-    random.seed(42)
-    random.shuffle(stems)
-    n       = len(stems)
-    n_train = int(n * train)
-    n_val   = int(n * val)
+    random.seed(42); random.shuffle(stems)
+    n = len(stems)
+    n_train = int(n * train); n_val = int(n * val)
 
-    splits = {
+    split_data = {
         "train": stems[:n_train],
-        "val":   stems[n_train:n_train + n_val],
-        "test":  stems[n_train + n_val:],
+        "val":   stems[n_train:n_train+n_val],
+        "test":  stems[n_train+n_val:],
     }
-
-    for name, items in splits.items():
-        path = splits_dir / f"{name}.txt"
-        path.write_text("\n".join(items))
+    for name, items in split_data.items():
+        (splits_dir / f"{name}.txt").write_text("\n".join(items))
         print(f"  {name}.txt: {len(items)} samples")
 
-    print(f"\n  Total: {n} samples split into train/val/test")
+    print(f"\n  Total: {n} matched image-mask pairs")
 
 
-def verify(dataset_dir: Path):
+def verify(dataset_dir: Path, variant: str = "CropsOrWeed9"):
     print("\nVerifying structure...")
     img_dir  = dataset_dir / "images"
-    mask_dir = dataset_dir / "labelIds" / "CropsOrWeed"
+    mask_dir = dataset_dir / "labelIds" / variant
     splits   = dataset_dir / "splits"
 
-    n_img   = len(list(img_dir.glob("*.png")))  if img_dir.exists()  else 0
-    n_mask  = len(list(mask_dir.glob("*.png"))) if mask_dir.exists() else 0
-
-    print(f"  images/              : {n_img} files")
-    print(f"  labelIds/CropsOrWeed/: {n_mask} files")
+    n_img  = sum(1 for _ in img_dir.glob("*.*"))    if img_dir.exists()  else 0
+    n_mask = sum(1 for _ in mask_dir.glob("*.png"))  if mask_dir.exists() else 0
+    print(f"  images/                    : {n_img} files")
+    print(f"  labelIds/{variant}/ : {n_mask} files")
 
     for split in ["train", "val", "test"]:
         f = splits / f"{split}.txt"
         if f.exists():
-            print(f"  splits/{split}.txt   : {len(f.read_text().strip().splitlines())} entries")
+            n = len(f.read_text().strip().splitlines())
+            print(f"  splits/{split}.txt          : {n} entries")
 
-    if n_img == 0:
-        print("\n  Dataset not downloaded yet. Run setup.py manually:")
-        print(f"  cd {dataset_dir}")
-        print(f"  python setup.py")
+    print(f"\nDataset ready at: {dataset_dir.absolute()}")
+    print(f"\nNext step:")
+    print(f"  python scripts/train_crosnweed.py --config configs/config_cropnweed.yaml")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output_dir", default="data/raw/cropandweed-dataset",
-                        help="Where to save the dataset")
-    parser.add_argument("--skip_download", action="store_true",
-                        help="Skip git clone + setup.py (if already downloaded)")
+    parser.add_argument("--output_dir",    default="data/raw/cropandweed-dataset/data")
+    parser.add_argument("--variant",       default="CropsOrWeed9")
+    parser.add_argument("--skip_download", action="store_true")
     args = parser.parse_args()
 
     out = Path(args.output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    if not args.skip_download:
-        print("Step 1: Cloning CropAndWeed repository...")
-        repo_scripts = out / "cropandweed-dataset-scripts"
-        if not repo_scripts.exists():
-            run(f'git clone https://github.com/cropandweed/cropandweed-dataset "{repo_scripts}"')
-        else:
-            print("  Repo already cloned.")
-
-        print("\nStep 2: Running setup.py to download dataset...")
-        print("  NOTE: This downloads ~8k images. May take 10-30 minutes.")
-        run("python setup.py", cwd=str(repo_scripts))
-
-        # Copy downloaded data to our expected location
-        downloaded = repo_scripts
-        print(f"\nStep 3: Dataset downloaded to {downloaded}")
-
-        # Point to the downloaded location
-        out = downloaded
-
-    print("\nStep 3: Creating train/val/test splits...")
-    create_splits(out)
-
-    verify(out)
-
-    print(f"\nDataset ready at: {out.absolute()}")
-    print("\nUpdate configs/config_caw.yaml:")
-    print(f'  raw_dir: "{out.absolute()}"')
-    print("\nNext step:")
-    print("  python scripts/train_caw.py --config configs/config_caw.yaml")
+    print(f"Creating train/val/test splits for variant: {args.variant}")
+    create_splits(out, variant=args.variant)
+    verify(out, variant=args.variant)
 
 
 if __name__ == "__main__":
