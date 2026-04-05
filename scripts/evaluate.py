@@ -70,7 +70,7 @@ def main():
         ignore_index = ds_cfg.get("ignore_index", 255),
     )
 
-    viz_dir = cfg.get("output", {}).get("viz_dir", "outputs/visualizations")
+    viz_dir = cfg.get("output", {}).get("viz_dir", "outputs/weedsgalore/visualizations")
     os.makedirs(viz_dir, exist_ok=True)
 
     with torch.no_grad():

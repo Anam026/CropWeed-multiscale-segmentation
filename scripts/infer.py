@@ -4,7 +4,7 @@ infer.py — Single-image inference
 Usage:
     python scripts/infer.py \
         --image path/to/image_R.png \
-        --checkpoint outputs/checkpoints/best.pth \
+        --checkpoint outputs/weedsgalore/checkpoints/best.pth \
         --config configs/config.yaml \
         --save output.png
 """

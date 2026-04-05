@@ -1,7 +1,7 @@
 """
 infer_all.py — Run inference on ALL images and save results
 Usage:
-    python scripts/infer_all.py --checkpoint outputs/checkpoints/best.pth --config configs/config.yaml --split all --summary
+    python scripts/infer_all.py --checkpoint outputs/weedsgalore/checkpoints/best.pth --config configs/config.yaml --split all --summary
 """
 import os, sys, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -103,7 +103,7 @@ def main():
     parser.add_argument("--config",     default="configs/config.yaml")
     parser.add_argument("--split",      default="all",
                         choices=["train","val","test","all"])
-    parser.add_argument("--save_dir",   default="outputs/visualizations/all_predictions")
+    parser.add_argument("--save_dir",   default="outputs/weedsgalore/visualizations/all_predictions")
     parser.add_argument("--summary",    action="store_true")
     parser.add_argument("--max_summary",default=20, type=int)
     args = parser.parse_args()

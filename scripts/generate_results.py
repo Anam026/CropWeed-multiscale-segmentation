@@ -5,7 +5,7 @@ Generates publication-quality result graphs and summary figures.
 
 Usage:
     python scripts/generate_results.py \
-        --checkpoint outputs/checkpoints/best.pth \
+        --checkpoint outputs/weedsgalore/checkpoints/best.pth \
         --config configs/config.yaml
 
 Produces in outputs/visualizations/results_report/:
@@ -53,7 +53,7 @@ plt.rcParams.update({
     "savefig.pad_inches": 0.2,
 })
 
-OUT_DIR = Path("outputs/visualizations/results_report")
+OUT_DIR = Path("outputs/weedsgalore/visualizations/results_report")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
