@@ -2,10 +2,13 @@
 outputs/*
 
 
+!outputs/weedsgalore/
 !outputs/weedsgalore/visualizations/
-!outputs/weedsgalore/visualizations/results_reports/
+!outputs/weedsgalore/visualizations/results_report/
 !outputs/weedsgalore/visualizations/results_report/**
-outputs/cropandweed/visualizations/all_predictions/
+
+!outputs/cropandweed/
+!outputs/cropandweed/visualizations/
 !outputs/cropandweed/visualizations/results_report/
 !outputs/cropandweed/visualizations/results_report/**
 !outputs/cropandweed/visualizations/summary_grid.png
