@@ -1,7 +1,12 @@
 """
-infer_all_caw.py — Inference on all CropAndWeed images
+infer_all_cropnweed.py — Inference on CropAndWeed images
 Usage:
-    python scripts/infer_all_caw.py --checkpoint outputs/cropandweed/checkpoints/best.pth --config configs/config_caw.yaml --split all --summary
+    python scripts/infer_all_cropnweed.py \
+        --checkpoint outputs/cropandweed/checkpoints/best.pth \
+        --config configs/config_cropnweed.yaml \
+        --split test \
+        --max_images 50 \
+        --summary
 """
 import os, sys, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -13,7 +18,8 @@ import yaml
 from pathlib import Path
 from tqdm import tqdm
 
-from src.data.dataset_caw import CropAndWeedDataset
+# BUG 1 FIXED: was importing from dataset_caw (wrong file)
+from src.data.dataset_cropnweed import CropAndWeedDataset
 from src.data.transforms import get_val_transforms
 from src.models.segmentation_model import build_model
 
@@ -80,12 +86,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--config",     default="configs/config_cropnweed.yaml")
-    parser.add_argument("--split",      default="all",
+    parser.add_argument("--split",      default="test",          # BUG 2 FIXED: default was "all"
                         choices=["train","val","test","all"])
     parser.add_argument("--save_dir",
                         default="outputs/cropandweed/visualizations/all_predictions")
     parser.add_argument("--summary",    action="store_true")
-    parser.add_argument("--max_summary",default=20, type=int)
+    parser.add_argument("--max_summary", default=20, type=int)
+    parser.add_argument("--max_images",  default=50, type=int,   # BUG 2 FIXED: new arg to limit saved images
+                        help="Max individual panel images to save per split (default 50)")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -112,11 +120,11 @@ def main():
         ds = CropAndWeedDataset(
             root_dir=ds_cfg["raw_dir"], split=split,
             image_size=ds_cfg["image_size"], transform=transform,
-            variant=ds_cfg.get("variant","CropsOrWeed"),
+            variant=ds_cfg.get("variant","CropsOrWeed9"),  # BUG 3 FIXED: was "CropsOrWeed" (missing "9")
         )
         split_dir = save_dir / split
         split_dir.mkdir(exist_ok=True)
-        print(f"\n{split}: {len(ds)} images")
+        print(f"\n{split}: {len(ds)} images (saving max {args.max_images})")
 
         for i in tqdm(range(len(ds)), desc=split):
             s = ds[i]
@@ -127,9 +135,11 @@ def main():
             img  = denorm(s["image"])
             gt   = s["mask"].numpy()
 
-            panel = make_panel(img, gt, pred, edge)
-            cv2.imwrite(str(split_dir / f"{s['stem']}_result.png"),
-                        cv2.cvtColor(panel, cv2.COLOR_RGB2BGR))
+            # Only save up to max_images individual panels
+            if total < args.max_images:
+                panel = make_panel(img, gt, pred, edge)
+                cv2.imwrite(str(split_dir / f"{s['stem']}_result.png"),
+                            cv2.cvtColor(panel, cv2.COLOR_RGB2BGR))
             total += 1
 
             if args.summary and len(summary_pairs) < args.max_summary:
@@ -143,7 +153,8 @@ def main():
                             (4,18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1)
                 summary_pairs.append(row)
 
-    print(f"\nSaved {total} images → {save_dir.absolute()}")
+    print(f"\nSaved {min(total, args.max_images)} panel images → {save_dir.absolute()}")
+    print(f"Ran inference on {total} total images")
 
     if args.summary and summary_pairs:
         cols = 2

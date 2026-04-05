@@ -1,5 +1,5 @@
 """
-CropAndWeed Dataset Loader 
+CropAndWeed Dataset Loader
 Dataset structure:
   data/raw/cropandweed-dataset/data/
   ├── images/          ← RGB images (.jpg)
@@ -10,15 +10,17 @@ Dataset structure:
       ├── val.txt
       └── test.txt
 
-CropsOrWeed9 class mapping → our 3 classes:
-    0        = background
-    1        = crop
-    2 to 8   = weed species → all mapped to 2
-    255      = ignore
+CropsOrWeed9 ACTUAL class mapping (verified from pixel analysis):
+    9        = background  → 0
+    1        = crop        → 1
+    3        = weed        → 2
+    8        = weed        → 2
+    0        = ignore      → 255
+    255      = ignore      → 255
 """
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 import cv2
 import numpy as np
 import torch
@@ -64,7 +66,6 @@ class CropAndWeedDataset(Dataset):
         stems = [l.strip() for l in split_file.read_text().splitlines() if l.strip()]
 
         for stem in stems:
-            # Try all image extensions
             img_path = None
             for ext in [".jpg", ".jpeg", ".png"]:
                 candidate = self.img_dir / f"{stem}{ext}"
@@ -77,8 +78,7 @@ class CropAndWeedDataset(Dataset):
             if img_path is not None and mask_path.exists():
                 self.samples.append({"img": img_path, "mask": mask_path, "stem": stem})
             else:
-                # Only print first few missing to avoid spam
-                if len([s for s in self.samples]) < 5:
+                if len(self.samples) < 5:
                     print(f"[CropAndWeed] Skipping missing: {stem}")
 
         print(f"[CropAndWeed] {self.split}: {len(self.samples)} samples loaded "
@@ -93,9 +93,11 @@ class CropAndWeedDataset(Dataset):
                 if mask.exists():
                     all_stems.append({"img": img, "mask": mask, "stem": img.stem})
 
-        random.seed(42); random.shuffle(all_stems)
+        random.seed(42)
+        random.shuffle(all_stems)
         n = len(all_stems)
-        n_train = int(n * train); n_val = int(n * val)
+        n_train = int(n * train)
+        n_val   = int(n * val)
 
         if self.split == "train":   self.samples = all_stems[:n_train]
         elif self.split == "val":   self.samples = all_stems[n_train:n_train+n_val]
@@ -108,13 +110,11 @@ class CropAndWeedDataset(Dataset):
     def __getitem__(self, idx):
         s = self.samples[idx]
 
-        # Load image
         img = cv2.imread(str(s["img"]))
         if img is None:
             raise FileNotFoundError(f"Cannot read: {s['img']}")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.uint8)
 
-        # Load mask and remap to 3 classes
         mask = cv2.imread(str(s["mask"]), cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise FileNotFoundError(f"Cannot read mask: {s['mask']}")
@@ -126,7 +126,7 @@ class CropAndWeedDataset(Dataset):
             mask = aug["mask"]
 
         if isinstance(img, np.ndarray):
-            img = torch.from_numpy(img.transpose(2,0,1)).float() / 255.0
+            img = torch.from_numpy(img.transpose(2, 0, 1)).float() / 255.0
         if isinstance(mask, np.ndarray):
             mask = torch.from_numpy(mask).long()
         else:
@@ -136,19 +136,20 @@ class CropAndWeedDataset(Dataset):
 
     def _remap_mask(self, mask: np.ndarray) -> np.ndarray:
         """
-        CropsOrWeed9 has pixel values 0-8 (+ 255 ignore).
-        Map to: 0=background, 1=crop, 2=weed, 255=ignore
-        Exact mapping depends on dataset — we use:
-            0 → 0  (background)
-            1 → 1  (crop)
-            2-8 → 2 (weed species)
+        VERIFIED mapping from pixel distribution analysis:
+            9   → 0  (background, 97% of pixels)
+            1   → 1  (crop,       0.32% of pixels)
+            3   → 2  (weed,       0.09% of pixels)
+            8   → 2  (weed,       2.3%  of pixels)
+            0   → 255 (ignore/unlabelled)
             255 → 255 (ignore)
         """
-        out = np.zeros_like(mask, dtype=np.uint8)
-        out[mask == 0]   = 0    # background
+        out = np.full_like(mask, 255, dtype=np.uint8)  # default = ignore
+        out[mask == 9]   = 0    # background
         out[mask == 1]   = 1    # crop
-        out[(mask >= 2) & (mask < 255)] = 2   # all weed classes → weed
-        out[mask == 255] = 255  # ignore
+        out[mask == 3]   = 2    # weed species
+        out[mask == 8]   = 2    # weed species
+        # mask == 0 and mask == 255 stay as 255 (ignore)
         return out
 
     def __repr__(self):

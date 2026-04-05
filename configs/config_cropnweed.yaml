@@ -12,16 +12,12 @@ project:
 
 dataset:
   name: "cropandweed"
-dataset:
   raw_dir: "data/raw/cropandweed-dataset/data"
   variant: "CropsOrWeed9"      # dataset variant folder under labelIds/
   image_size: 512
   num_classes: 3
   class_names: ["background", "crop", "weed"]
   ignore_index: 255
-  train_ratio: 0.70
-  val_ratio:   0.15
-  test_ratio:  0.15
 
 augmentation:
   train:
