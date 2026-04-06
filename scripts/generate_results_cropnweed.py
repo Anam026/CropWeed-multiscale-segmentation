@@ -19,7 +19,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from pathlib import Path
 from tqdm import tqdm
 
-from src.data.dataset_caw import CropAndWeedDataset
+from src.data.dataset_cropnweed import CropAndWeedDataset
 from src.data.transforms import get_val_transforms
 from src.models.segmentation_model import build_model
 from src.evaluation.metrics import SegmentationMetrics
