@@ -38,7 +38,7 @@ class AsymmetricConvBranch(nn.Module):
             bias=False,
         )
         self.bn  = nn.BatchNorm2d(out_channels)
-        self.act = nn.ReLU(inplace=True)
+        self.act = nn.ReLU(inplace=False)          # ← fixed
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1xk(x)
@@ -59,7 +59,7 @@ class ChannelAttention(nn.Module):
         self.fc  = nn.Sequential(
             nn.Flatten(),
             nn.Linear(channels, mid, bias=False),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),                # ← fixed
             nn.Linear(mid, channels, bias=False),
             nn.Sigmoid(),
         )
@@ -92,14 +92,13 @@ class MSFCAModule(nn.Module):
         self.kernel_sizes = kernel_sizes or [5, 11, 17]
         n_branches = len(self.kernel_sizes)
 
-        # Project input to branch_channels first (split out_channels evenly)
         branch_channels = out_channels // n_branches
 
         # 1×1 projection before branches
         self.input_proj = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),                # ← fixed
         )
 
         # Parallel asymmetric branches
@@ -116,7 +115,7 @@ class MSFCAModule(nn.Module):
         self.output_proj = nn.Sequential(
             nn.Conv2d(concat_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=False),                # ← fixed
         )
 
         # Residual shortcut
@@ -136,14 +135,11 @@ class MSFCAModule(nn.Module):
 
         x = self.input_proj(x)
 
-        # Multi-scale branches
         branch_outs = [branch(x) for branch in self.branches]
-        concat = torch.cat(branch_outs, dim=1)   # (B, branch_ch * n, H, W)
+        concat = torch.cat(branch_outs, dim=1)
 
-        # Channel attention
         concat = self.channel_att(concat)
 
-        # Project back
         out = self.output_proj(concat)
 
-        return F.relu(out + residual, inplace=True)
+        return F.relu(out + residual, inplace=False)   # ← fixed

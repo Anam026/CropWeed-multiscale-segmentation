@@ -1,12 +1,8 @@
 """
-infer_all_cropnweed.py — Inference on CropAndWeed images
-Usage:
-    python scripts/infer_all_cropnweed.py \
-        --checkpoint outputs/cropandweed/checkpoints/best.pth \
-        --config configs/config_cropnweed.yaml \
-        --split test \
-        --max_images 50 \
-        --summary
+infer_all_cropsnweeds.py — Inference on CropAndWeed images
+Picks images with the MOST crop/weed pixels so visualizations
+show actual plants rather than mostly background.
+
 """
 import os, sys, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -18,15 +14,14 @@ import yaml
 from pathlib import Path
 from tqdm import tqdm
 
-# BUG 1 FIXED: was importing from dataset_caw (wrong file)
 from src.data.dataset_cropnweed import CropAndWeedDataset
 from src.data.transforms import get_val_transforms
 from src.models.segmentation_model import build_model
 
 CLASS_COLORS_RGB = {
-    0: (20,  20,  20),   # background
-    1: (0,  200,   0),   # crop - green
-    2: (200,  0,   0),   # weed - red
+    0: (20,  20,  20),
+    1: (0,  200,   0),   # crop  - green
+    2: (200,  0,   0),   # weed  - red
 }
 CLASS_NAMES = ["background", "crop", "weed"]
 
@@ -39,31 +34,38 @@ def mask_to_color(mask):
 
 
 def denorm(tensor):
-    mean = np.array([0.485, 0.456, 0.406])
-    std  = np.array([0.229, 0.224, 0.225])
-    img  = tensor.cpu().permute(1,2,0).numpy()
-    return (np.clip(img*std+mean, 0, 1)*255).astype(np.uint8)
+    m = np.array([0.485, 0.456, 0.406])
+    s = np.array([0.229, 0.224, 0.225])
+    img = tensor.cpu().permute(1,2,0).numpy()
+    return (np.clip(img*s+m, 0, 1)*255).astype(np.uint8)
 
 
-def add_legend(panel_rgb, w):
-    leg = np.zeros((36, w, 3), dtype=np.uint8)
+def plant_pixel_ratio(mask):
+    """Returns fraction of pixels that are crop or weed (not background)."""
+    total = mask.size
+    plant = ((mask == 1) | (mask == 2)).sum()
+    return plant / total if total > 0 else 0.0
+
+
+def add_legend(panel_rgb, panel_w):
+    leg = np.zeros((36, panel_w, 3), dtype=np.uint8)
     x = 12
     for cid, name in enumerate(CLASS_NAMES):
         r, g, b = CLASS_COLORS_RGB[cid]
         cv2.rectangle(leg, (x,7), (x+20,27), (r,g,b), -1)
-        cv2.putText(leg, name, (x+26,22), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55, (210,210,210), 1, cv2.LINE_AA)
+        cv2.putText(leg, name, (x+26,22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (210,210,210), 1, cv2.LINE_AA)
         x += 130
     return np.vstack([panel_rgb, leg])
 
 
-def make_panel(img, gt, pred, edge):
-    gt_c   = mask_to_color(gt)
-    pred_c = mask_to_color(pred)
-    edge_v = (np.stack([edge]*3, -1)*255).astype(np.uint8)
-    overlay = cv2.addWeighted(img, 0.55, pred_c, 0.45, 0)
-    panels  = [img, gt_c, pred_c, edge_v, overlay]
-    labels  = ["Original","Ground truth","Prediction","Edge map","Overlay"]
+def make_panel(img_rgb, gt_mask, pred_mask, edge_prob):
+    gt_color   = mask_to_color(gt_mask)
+    pred_color = mask_to_color(pred_mask)
+    edge_3ch   = (np.stack([edge_prob]*3, axis=-1)*255).astype(np.uint8)
+    overlay    = cv2.addWeighted(img_rgb, 0.55, pred_color, 0.45, 0)
+    panels = [img_rgb, gt_color, pred_color, edge_3ch, overlay]
+    labels = ["Original", "Ground truth", "Prediction", "Edge map", "Overlay"]
     for p, l in zip(panels, labels):
         cv2.putText(p, l, (8,24), cv2.FONT_HERSHEY_SIMPLEX,
                     0.65, (255,255,255), 2, cv2.LINE_AA)
@@ -75,112 +77,179 @@ def compute_miou(pred, gt, nc=3, ignore=255):
     ious = []
     for c in range(nc):
         v = gt != ignore
-        inter = ((pred==c)&(gt==c)&v).sum()
-        union = ((pred==c)|(gt==c))&v
-        u = union.sum()
-        if u > 0: ious.append(inter/u)
+        inter = ((pred==c) & (gt==c) & v).sum()
+        union = ((pred==c) | (gt==c)) & v
+        if union.sum() > 0:
+            ious.append(inter / union.sum())
     return np.mean(ious) if ious else 0.0
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--config",     default="configs/config_cropnweed.yaml")
-    parser.add_argument("--split",      default="test",          # BUG 2 FIXED: default was "all"
+    parser.add_argument("--config",     default="configs/config_cropsnweeds.yaml")
+    parser.add_argument("--split",      default="all",
                         choices=["train","val","test","all"])
     parser.add_argument("--save_dir",
                         default="outputs/cropandweed/visualizations/all_predictions")
-    parser.add_argument("--summary",    action="store_true")
-    parser.add_argument("--max_summary", default=20, type=int)
-    parser.add_argument("--max_images",  default=50, type=int,   # BUG 2 FIXED: new arg to limit saved images
-                        help="Max individual panel images to save per split (default 50)")
+    parser.add_argument("--summary",     action="store_true")
+    parser.add_argument("--n_summary",   default=50, type=int,
+                        help="Number of images in summary grid")
+    parser.add_argument("--min_plant_ratio", default=0.05, type=float,
+                        help="Min fraction of plant pixels to include in summary (0-1)")
     args = parser.parse_args()
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
-    ds_cfg = cfg["dataset"]
+    device  = torch.device("cpu")
+    ds_cfg  = cfg["dataset"]
+    aug_cfg = cfg.get("augmentation", {})
+
     print("Loading model...")
     model = build_model(cfg)
     ckpt  = torch.load(args.checkpoint, map_location="cpu")
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
-    print(f"Checkpoint: epoch={ckpt.get('epoch','?')}, mIoU={ckpt.get('best_miou',0):.4f}")
+    print(f"Checkpoint: epoch={ckpt.get('epoch','?')}, "
+          f"best_mIoU={ckpt.get('best_miou',0):.4f}")
 
-    transform = get_val_transforms(ds_cfg["image_size"], cfg.get("augmentation",{}))
+    transform = get_val_transforms(ds_cfg["image_size"], aug_cfg)
     splits    = ["train","val","test"] if args.split=="all" else [args.split]
 
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    summary_pairs = []
-    total = 0
+    # Collect all results with their plant ratio for smart sampling
+    all_results = []
+    total_saved = 0
 
     for split in splits:
-        ds = CropAndWeedDataset(
-            root_dir=ds_cfg["raw_dir"], split=split,
-            image_size=ds_cfg["image_size"], transform=transform,
-            variant=ds_cfg.get("variant","CropsOrWeed9"),  # BUG 3 FIXED: was "CropsOrWeed" (missing "9")
+        dataset = CropAndWeedDataset(
+            root_dir   = ds_cfg["raw_dir"],
+            split      = split,
+            image_size = ds_cfg["image_size"],
+            transform  = transform,
+            variant    = ds_cfg.get("variant", "CropsOrWeed9"),
         )
         split_dir = save_dir / split
         split_dir.mkdir(exist_ok=True)
-        print(f"\n{split}: {len(ds)} images (saving max {args.max_images})")
+        print(f"\n{split}: {len(dataset)} images")
 
-        for i in tqdm(range(len(ds)), desc=split):
-            s = ds[i]
-            with torch.no_grad():
-                out = model(s["image"].unsqueeze(0))
-            pred = out["seg"].argmax(1).squeeze(0).cpu().numpy()
-            edge = torch.sigmoid(out["edge"]).squeeze().cpu().numpy()
+        for i in tqdm(range(len(dataset)), desc=split):
+            s    = dataset[i]
             img  = denorm(s["image"])
             gt   = s["mask"].numpy()
+            stem = s["stem"]
 
-            # Only save up to max_images individual panels
-            if total < args.max_images:
-                panel = make_panel(img, gt, pred, edge)
-                cv2.imwrite(str(split_dir / f"{s['stem']}_result.png"),
-                            cv2.cvtColor(panel, cv2.COLOR_RGB2BGR))
-            total += 1
+            with torch.no_grad():
+                out = model(s["image"].unsqueeze(0))
 
-            if args.summary and len(summary_pairs) < args.max_summary:
-                miou = compute_miou(pred, gt)
-                si   = cv2.resize(img, (224,224))
-                sp   = cv2.resize(mask_to_color(pred),(224,224),interpolation=cv2.INTER_NEAREST)
-                sg   = cv2.resize(mask_to_color(gt),  (224,224),interpolation=cv2.INTER_NEAREST)
-                ov   = cv2.addWeighted(si, 0.55, sp, 0.45, 0)
-                row  = np.concatenate([si, sg, sp, ov], axis=1)
-                cv2.putText(row, f"mIoU={miou:.3f} {s['stem'][-12:]}",
-                            (4,18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1)
-                summary_pairs.append(row)
+            pred = out["seg"].argmax(1).squeeze(0).cpu().numpy()
+            edge = torch.sigmoid(out["edge"]).squeeze().cpu().numpy()
 
-    print(f"\nSaved {min(total, args.max_images)} panel images → {save_dir.absolute()}")
-    print(f"Ran inference on {total} total images")
+            # Save individual result
+            panel    = make_panel(img, gt, pred, edge)
+            out_path = split_dir / f"{stem}_result.png"
+            cv2.imwrite(str(out_path),
+                        cv2.cvtColor(panel, cv2.COLOR_RGB2BGR))
+            total_saved += 1
 
-    if args.summary and summary_pairs:
+            # Compute plant ratio from GT mask for smart selection
+            ratio = plant_pixel_ratio(gt)
+            all_results.append({
+                "img":   img,
+                "gt":    gt,
+                "pred":  pred,
+                "stem":  stem,
+                "ratio": ratio,
+                "miou":  compute_miou(pred, gt),
+            })
+
+    print(f"\nSaved {total_saved} individual images → {save_dir.absolute()}")
+
+    # ── Smart summary grid ────────────────────────────────────────────────────
+    if args.summary and all_results:
+        print(f"\nSelecting top {args.n_summary} plant-rich images "
+              f"(min plant ratio: {args.min_plant_ratio:.0%})...")
+
+        # Filter to images with enough plant pixels
+        plant_rich = [r for r in all_results
+                      if r["ratio"] >= args.min_plant_ratio]
+
+        print(f"  {len(plant_rich)} images have ≥{args.min_plant_ratio:.0%} plant pixels")
+
+        # Sort by plant pixel ratio descending, pick top n_summary
+        plant_rich.sort(key=lambda r: r["ratio"], reverse=True)
+        picks = plant_rich[:args.n_summary]
+
+        # If not enough plant-rich images, pad with best remaining
+        if len(picks) < args.n_summary:
+            remaining = [r for r in all_results if r not in picks]
+            remaining.sort(key=lambda r: r["ratio"], reverse=True)
+            picks += remaining[:args.n_summary - len(picks)]
+
+        print(f"  Selected {len(picks)} images")
+        print(f"  Plant ratio range: "
+              f"{picks[-1]['ratio']:.1%} – {picks[0]['ratio']:.1%}")
+
+        # Build summary grid: each row = Original | GT | Prediction | Overlay
+        summary_rows = []
+        for r in picks:
+            small_img  = cv2.resize(r["img"],            (224,224))
+            small_gt   = cv2.resize(mask_to_color(r["gt"]),   (224,224),
+                                    interpolation=cv2.INTER_NEAREST)
+            small_pred = cv2.resize(mask_to_color(r["pred"]), (224,224),
+                                    interpolation=cv2.INTER_NEAREST)
+            ovly = cv2.addWeighted(small_img, 0.55, small_pred, 0.45, 0)
+            row  = np.concatenate([small_img, small_gt, small_pred, ovly], axis=1)
+
+            # Label: stem + plant % + mIoU
+            label = (f"{r['stem'][-14:]}  "
+                     f"plant:{r['ratio']:.0%}  "
+                     f"mIoU:{r['miou']:.2f}")
+            cv2.putText(row, label, (4,18),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255,255,255), 1)
+            summary_rows.append(row)
+
+        # Arrange into 2-column grid
         cols = 2
-        rows = (len(summary_pairs)+cols-1)//cols
-        while len(summary_pairs) < rows*cols:
-            summary_pairs.append(np.zeros_like(summary_pairs[0]))
-        grid = np.concatenate(
-            [np.concatenate(summary_pairs[r*cols:(r+1)*cols], axis=1)
-             for r in range(rows)], axis=0)
+        rows = (len(summary_rows) + cols - 1) // cols
+        while len(summary_rows) < rows * cols:
+            summary_rows.append(np.zeros_like(summary_rows[0]))
 
-        tb = np.zeros((50, grid.shape[1], 3), dtype=np.uint8)
-        cv2.putText(tb, "CropAndWeed Segmentation Results  |  Original  GT  Prediction  Overlay",
-                    (10,32), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (220,220,220), 1)
+        grid_rows = []
+        for r in range(rows):
+            grid_rows.append(
+                np.concatenate(summary_rows[r*cols:(r+1)*cols], axis=1))
+        grid = np.concatenate(grid_rows, axis=0)
+
+        # Title bar
+        tb = np.zeros((55, grid.shape[1], 3), dtype=np.uint8)
+        cv2.putText(tb,
+                    f"CropAndWeed Segmentation — Top {len(picks)} plant-rich images  "
+                    f"|  Original  GT  Prediction  Overlay",
+                    (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220,220,220), 1)
+
+        # Legend bar
         lb = np.zeros((36, grid.shape[1], 3), dtype=np.uint8)
-        x = 12
+        x  = 12
         for cid, name in enumerate(CLASS_NAMES):
-            r,g,b = CLASS_COLORS_RGB[cid]
-            cv2.rectangle(lb,(x,7),(x+20,27),(r,g,b),-1)
-            cv2.putText(lb,name,(x+26,22),cv2.FONT_HERSHEY_SIMPLEX,0.55,(200,200,200),1)
+            r, g, b = CLASS_COLORS_RGB[cid]
+            cv2.rectangle(lb, (x,7), (x+20,27), (r,g,b), -1)
+            cv2.putText(lb, name, (x+26,22),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200,200,200), 1)
             x += 130
+
         grid = np.vstack([tb, grid, lb])
 
         out_path = "outputs/cropandweed/visualizations/summary_grid.png"
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         cv2.imwrite(out_path, cv2.cvtColor(grid, cv2.COLOR_RGB2BGR))
-        print(f"Summary grid → {out_path}")
+        print(f"\nSummary grid → {out_path}")
+        print(f"All images show ≥{args.min_plant_ratio:.0%} plant pixels")
+
+    print(f"\nDone! Open: {save_dir.absolute()}")
 
 
 if __name__ == "__main__":
